@@ -69,9 +69,10 @@ type Graph struct {
 // Fields are exported so consumers can access the underlying data for
 // custom traversal beyond what the query methods provide.
 type ModuleGraph struct {
-	CG     *gocg.Graph
-	Prog   *ssa.Program
-	ByFile map[string][]*ssa.Function // source file → SSA functions defined there
+	CG       *gocg.Graph
+	Prog     *ssa.Program
+	ByFile   map[string][]*ssa.Function // source file → SSA functions defined there
+	UserPkgs map[string]bool            // package paths explicitly loaded (excludes stdlib and indirect deps)
 }
 
 // FuncInfo describes a function found in the call graph.
@@ -144,6 +145,14 @@ func buildModuleGraph(pkgs []*packages.Package, method Method) (*ModuleGraph, er
 		cg = cha.CallGraph(prog)
 	}
 
+	// Collect the package paths that were explicitly loaded (not indirect deps).
+	userPkgs := make(map[string]bool, len(pkgs))
+	for _, p := range pkgs {
+		if p.PkgPath != "" {
+			userPkgs[p.PkgPath] = true
+		}
+	}
+
 	// Build file → functions index for seed lookup.
 	byFile := make(map[string][]*ssa.Function)
 	for fn := range cg.Nodes {
@@ -158,9 +167,10 @@ func buildModuleGraph(pkgs []*packages.Package, method Method) (*ModuleGraph, er
 	}
 
 	return &ModuleGraph{
-		CG:     cg,
-		Prog:   prog,
-		ByFile: byFile,
+		CG:       cg,
+		Prog:     prog,
+		ByFile:   byFile,
+		UserPkgs: userPkgs,
 	}, nil
 }
 

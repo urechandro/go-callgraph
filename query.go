@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"golang.org/x/tools/go/ssa"
+	"golang.org/x/tools/go/ssa/ssautil"
 )
 
 // FindFunctions returns references to SSA functions whose name matches symbol.
@@ -189,6 +190,64 @@ func (g *Graph) FindTestsByName(names []string) []FuncInfo {
 					break
 				}
 			}
+		}
+	}
+	return results
+}
+
+// DeadFunctions returns functions that have no callers within the analysed
+// module(s). Synthetic functions and entry points (init, main, Test*,
+// Benchmark*) are always excluded. Set includeExported to true to also report
+// exported functions with no internal callers — by default they are skipped
+// because they may be called by external packages.
+//
+// This is most reliable with [RTA]: functions absent from the RTA call graph
+// are provably unreachable from all entry points. With [CHA], indirect calls
+// through function values are over-approximated (every func of a matching
+// signature is a potential callee), so CHA will miss many dead functions.
+func (g *Graph) DeadFunctions(includeExported bool) []FuncInfo {
+	var results []FuncInfo
+	for _, mg := range g.modules {
+		for fn := range ssautil.AllFunctions(mg.Prog) {
+			if fn == nil || fn.Synthetic != "" {
+				continue
+			}
+			// Skip uninstantiated generic templates.
+			if fn.TypeParams().Len() > 0 {
+				continue
+			}
+			name := fn.Name()
+			// Always skip entry points.
+			if name == "init" || name == "main" {
+				continue
+			}
+			if strings.HasPrefix(name, "Test") || strings.HasPrefix(name, "Benchmark") {
+				continue
+			}
+			// Restrict to the user's own packages — skip stdlib and indirect deps.
+			if pkgPath := FuncPkgPath(fn); pkgPath == "" || !mg.UserPkgs[pkgPath] {
+				continue
+			}
+			// Skip exported names unless the caller wants them.
+			isExported := len(name) > 0 && name[0] >= 'A' && name[0] <= 'Z'
+			if !includeExported && isExported {
+				continue
+			}
+			// A nil node means RTA never reached this function; a node with no
+			// incoming edges means nothing in the graph calls it.
+			node := mg.CG.Nodes[fn]
+			if node != nil && len(node.In) > 0 {
+				continue
+			}
+			pos := mg.Prog.Fset.Position(fn.Pos())
+			if !pos.IsValid() {
+				continue
+			}
+			results = append(results, FuncInfo{
+				Name: name,
+				File: pos.Filename,
+				Line: pos.Line,
+			})
 		}
 	}
 	return results

@@ -176,6 +176,56 @@ func TestQualifiedID(t *testing.T) {
 	})
 }
 
+func TestDeadFunctions_RTA(t *testing.T) {
+	g, err := callgraph.Build([]string{fixtureDir()}, callgraph.RTA)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	dead := g.DeadFunctions(true)
+
+	// D is never called — it must appear in the dead list.
+	if !containsName(dead, "D") {
+		t.Errorf("expected D in dead functions, got %v", names(dead))
+	}
+	// A, B, C are reachable via TestA → A → B → C.
+	for _, name := range []string{"A", "B", "C"} {
+		if containsName(dead, name) {
+			t.Errorf("expected %s to be reachable, but it appeared in dead list", name)
+		}
+	}
+}
+
+func TestDeadFunctions_CHA_NoFalseNegatives(t *testing.T) {
+	// CHA over-approximates indirect func() calls, so D may not appear as dead.
+	// But functions that ARE called (A, B, C) must never be reported as dead.
+	g, err := callgraph.Build([]string{fixtureDir()}, callgraph.CHA)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	dead := g.DeadFunctions(true)
+
+	for _, name := range []string{"A", "B", "C"} {
+		if containsName(dead, name) {
+			t.Errorf("expected %s to be reachable (CHA), but it appeared in dead list", name)
+		}
+	}
+}
+
+func TestDeadFunctions_ExcludesExportedByDefault(t *testing.T) {
+	g, err := callgraph.Build([]string{fixtureDir()}, callgraph.RTA)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// With includeExported=false, exported D should not be reported.
+	dead := g.DeadFunctions(false)
+	if containsName(dead, "D") {
+		t.Error("D should not appear when includeExported=false")
+	}
+}
+
 // helpers
 
 func containsName(fns []callgraph.FuncInfo, name string) bool {
