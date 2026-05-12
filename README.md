@@ -11,7 +11,7 @@ layers.
 go get github.com/urechandro/go-callgraph
 ```
 
-Requires Go 1.23+ and a working Go toolchain in `PATH` (the SSA builder
+Requires Go 1.26 and a working Go toolchain in `PATH` (the SSA builder
 shells out to `go list`).
 
 ## Quick start
