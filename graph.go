@@ -1,5 +1,41 @@
-// Package callgraph builds SSA-based call graphs from Go packages and provides
-// query methods for caller/callee lookups, test discovery, and edge iteration.
+// Package callgraph builds SSA-based call graphs from Go source code and
+// provides query methods for caller/callee lookups, test discovery, and edge
+// iteration.
+//
+// # Algorithms
+//
+// Two algorithms are supported:
+//
+//   - [CHA] (Class Hierarchy Analysis) — conservative. Includes all possible
+//     dispatch targets for interface calls. Fast, may over-approximate.
+//   - [RTA] (Rapid Type Analysis) — precise. Tracks which concrete types are
+//     actually instantiated and reachable. Slower, fewer false edges.
+//
+// RTA is the default for most use cases. Use CHA when you need faster builds
+// and can tolerate some extra edges.
+//
+// # Quick start
+//
+//	g, err := callgraph.Build([]string{"/path/to/module"}, callgraph.RTA)
+//	if err != nil { ... }
+//
+//	refs := g.FindFunctions("MyFunc")
+//	callers := g.DirectCallers(refs)
+//	for _, c := range callers {
+//	    fmt.Println(c.Name, c.File, c.Line)
+//	}
+//
+// # Integration with persistence layers
+//
+// If you already load packages yourself (e.g. with custom config or exclusion
+// filters), use [BuildFromPackages] to skip the load step. Combine with
+// [Graph.ForEachEdgeInPackages] and [QualifiedID] to persist edges to a store:
+//
+//	g, _ := callgraph.BuildFromPackages(pkgs, callgraph.RTA)
+//	g.ForEachEdgeInPackages(myPkgSet, func(e callgraph.EdgeInfo) bool {
+//	    store.Insert(callgraph.QualifiedID(e.Caller), callgraph.QualifiedID(e.Callee))
+//	    return true
+//	})
 package callgraph
 
 import (
@@ -16,7 +52,9 @@ import (
 type Method string
 
 const (
+	// CHA selects Class Hierarchy Analysis: conservative, fast, may over-approximate interface dispatch.
 	CHA Method = "cha"
+	// RTA selects Rapid Type Analysis: precise, tracks concrete types, recommended for most use cases.
 	RTA Method = "rta"
 )
 
