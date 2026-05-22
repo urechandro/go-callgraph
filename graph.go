@@ -11,8 +11,8 @@
 //   - [RTA] (Rapid Type Analysis) — precise. Tracks which concrete types are
 //     actually instantiated and reachable. Slower, fewer false edges.
 //
-// RTA is the default for most use cases. Use CHA when you need faster builds
-// and can tolerate some extra edges.
+// CHA is the default ([DefaultMethod]). Use RTA when you need precise results
+// and have a binary or test suite as an entry point.
 //
 // # Quick start
 //
@@ -54,8 +54,11 @@ type Method string
 const (
 	// CHA selects Class Hierarchy Analysis: conservative, fast, may over-approximate interface dispatch.
 	CHA Method = "cha"
-	// RTA selects Rapid Type Analysis: precise, tracks concrete types, recommended for most use cases.
+	// RTA selects Rapid Type Analysis: precise, tracks concrete types, requires a binary or test entry point.
 	RTA Method = "rta"
+
+	// DefaultMethod is used when method is the zero value ("").
+	DefaultMethod = CHA
 )
 
 // Graph wraps one or more call graphs (one per module) and provides
@@ -93,6 +96,9 @@ type FuncRef struct {
 // Build loads packages from each module root, builds SSA, and runs the
 // selected call graph algorithm. Each root is analysed independently.
 func Build(modRoots []string, method Method) (*Graph, error) {
+	if method == "" {
+		method = DefaultMethod
+	}
 	g := &Graph{method: method}
 	for _, root := range modRoots {
 		pkgs, err := LoadPackages(root)
@@ -122,6 +128,9 @@ func Build(modRoots []string, method Method) (*Graph, error) {
 // Use this when you have already called packages.Load yourself (e.g. with a
 // custom Config). Returns a single-module Graph.
 func BuildFromPackages(pkgs []*packages.Package, method Method) (*Graph, error) {
+	if method == "" {
+		method = DefaultMethod
+	}
 	mg, err := buildModuleGraph(pkgs, method)
 	if err != nil {
 		return nil, err

@@ -19,7 +19,7 @@ shells out to `go list`).
 ```go
 import callgraph "github.com/urechandro/go-callgraph"
 
-// Build a call graph for a module.
+// Build a call graph for a module (defaults to CHA when method is "").
 g, err := callgraph.Build([]string{"/path/to/module"}, callgraph.RTA)
 if err != nil {
     log.Fatal(err)
@@ -46,8 +46,9 @@ for _, t := range g.CallersToTests(refs) {
 | Rapid Type Analysis | `callgraph.RTA` | High — tracks concrete types | Slower |
 | Class Hierarchy Analysis | `callgraph.CHA` | Conservative — may over-approximate | Faster |
 
-Use **RTA** (default) when accuracy matters. Use **CHA** for quick scans or
-when the program has few interface-heavy dispatch sites.
+**CHA** is the default (`callgraph.DefaultMethod`). Pass `""` or omit an explicit
+choice to get it. Use **RTA** when accuracy matters and you have a binary or
+test suite as an entry point.
 
 ## Pre-loaded packages
 
@@ -92,6 +93,46 @@ g, err := callgraph.Build([]string{
 }, callgraph.RTA)
 ```
 
+## Visualization
+
+### DOT / Graphviz
+
+Export the full graph to a `.dot` file and render it with Graphviz:
+
+```go
+g, _ := callgraph.Build([]string{"."}, callgraph.DefaultMethod)
+
+f, _ := os.Create("callgraph.dot")
+callgraph.WriteDOT(f, g)
+f.Close()
+```
+
+```sh
+dot -Tsvg callgraph.dot > callgraph.svg   # brew install graphviz
+```
+
+Output is deterministic — nodes are sorted alphabetically, duplicate edges
+are suppressed.
+
+### ASCII tree
+
+Print direct callers or callees as a tree in the terminal:
+
+```go
+refs := g.FindFunctions("ProcessOrder")
+
+callgraph.WriteTree(os.Stdout, "ProcessOrder", g.DirectCallers(refs))
+// ProcessOrder
+// ├── HandleCheckout  checkout.go:42
+// ├── RetryJob        worker.go:18
+// └── TestProcessOrder  order_test.go:7
+
+callgraph.WriteTree(os.Stdout, "ProcessOrder", g.DirectCallees(refs))
+```
+
+Both functions accept any `io.Writer`, so you can write to a file or
+`bytes.Buffer` the same way.
+
 ## API reference
 
 See [pkg.go.dev/github.com/urechandro/go-callgraph](https://pkg.go.dev/github.com/urechandro/go-callgraph) for the full godoc.
@@ -123,6 +164,13 @@ See [pkg.go.dev/github.com/urechandro/go-callgraph](https://pkg.go.dev/github.co
 |----------|-------------|
 | `ForEachEdge(fn)` | Iterate all call edges |
 | `ForEachEdgeInPackages(pkgs, fn)` | Iterate edges where caller is in the given package set |
+
+### Visualization
+
+| Function | Description |
+|----------|-------------|
+| `WriteDOT(w, g)` | Write the full graph in Graphviz DOT format |
+| `WriteTree(w, root, nodes)` | Print a root and its neighbors as an ASCII tree |
 
 ### Symbol IDs
 
