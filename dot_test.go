@@ -49,6 +49,34 @@ func TestWriteDOT_deterministic(t *testing.T) {
 	}
 }
 
+func TestWriteDOTSubgraph(t *testing.T) {
+	g, err := callgraph.Build([]string{fixtureDir()}, callgraph.RTA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// B is called by A and calls C; blast radius should include A.
+	refs := g.FindFunctions("B")
+	if len(refs) == 0 {
+		t.Fatal("function B not found")
+	}
+	all := append(refs, g.TransitiveCallers(refs)...)
+
+	var buf bytes.Buffer
+	if err := callgraph.WriteDOTSubgraph(&buf, all); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "digraph callgraph {") {
+		t.Error("missing digraph header")
+	}
+	if !strings.Contains(out, "A") {
+		t.Error("expected transitive caller A in subgraph output")
+	}
+	if !strings.Contains(out, "B") {
+		t.Error("expected root B in subgraph output")
+	}
+}
+
 func TestWriteDOT_knownEdge(t *testing.T) {
 	g, err := callgraph.Build([]string{fixtureDir()}, callgraph.RTA)
 	if err != nil {

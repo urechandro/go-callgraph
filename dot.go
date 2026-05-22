@@ -7,11 +7,61 @@ import (
 	"strings"
 )
 
+// WriteDOTSubgraph writes only the subgraph formed by the given functions in
+// Graphviz DOT format. Edges where either end is not in refs are omitted.
+//
+// Typical use — blast radius of a symbol:
+//
+//	refs := g.FindFunctions("MyFunc")
+//	all := append(refs, g.TransitiveCallers(refs)...)
+//	callgraph.WriteDOTSubgraph(w, all)
+//
+// Forward slice (what a function reaches):
+//
+//	all := append(refs, g.TransitiveCallees(refs)...)
+//	callgraph.WriteDOTSubgraph(w, all)
+func WriteDOTSubgraph(w io.Writer, refs []FuncRef) error {
+	inSet := make(map[string]struct{}, len(refs))
+	for _, ref := range refs {
+		if ref.Fn != nil {
+			inSet[ref.Fn.String()] = struct{}{}
+		}
+	}
+
+	var rawEdges []dotEdge
+	seen := map[string]struct{}{}
+	seenEdge := map[string]struct{}{}
+
+	for _, ref := range refs {
+		if ref.Fn == nil || ref.Node == nil {
+			continue
+		}
+		seen[ref.Fn.String()] = struct{}{}
+		for _, edge := range ref.Node.Out {
+			callee := edge.Callee.Func
+			if callee == nil {
+				continue
+			}
+			if _, ok := inSet[callee.String()]; !ok {
+				continue
+			}
+			key := ref.Fn.String() + "\x00" + callee.String()
+			if _, dup := seenEdge[key]; dup {
+				continue
+			}
+			seenEdge[key] = struct{}{}
+			rawEdges = append(rawEdges, dotEdge{ref.Fn.String(), callee.String()})
+			seen[callee.String()] = struct{}{}
+		}
+	}
+
+	return writeDOT(w, seen, rawEdges)
+}
+
 // WriteDOT writes the call graph in Graphviz DOT format to w.
 // Render with: dot -Tsvg out.dot > out.svg
 func WriteDOT(w io.Writer, g *Graph) error {
-	type rawEdge struct{ caller, callee string }
-	var rawEdges []rawEdge
+	var rawEdges []dotEdge
 	seen := map[string]struct{}{}
 	seenEdge := map[string]struct{}{}
 
@@ -22,12 +72,18 @@ func WriteDOT(w io.Writer, g *Graph) error {
 			return true
 		}
 		seenEdge[key] = struct{}{}
-		rawEdges = append(rawEdges, rawEdge{c, d})
+		rawEdges = append(rawEdges, dotEdge{c, d})
 		seen[c] = struct{}{}
 		seen[d] = struct{}{}
 		return true
 	})
 
+	return writeDOT(w, seen, rawEdges)
+}
+
+type dotEdge struct{ caller, callee string }
+
+func writeDOT(w io.Writer, seen map[string]struct{}, rawEdges []dotEdge) error {
 	names := make([]string, 0, len(seen))
 	for n := range seen {
 		names = append(names, n)

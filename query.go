@@ -325,3 +325,67 @@ func (g *Graph) TestsCovering(affectedDirs map[string]bool, changedFiles []strin
 
 	return results
 }
+
+// TransitiveCallers returns all functions that transitively call any of the
+// given functions (the blast radius). The input refs are not included in the
+// result; combine with append if you need them:
+//
+//	all := append(refs, g.TransitiveCallers(refs)...)
+func (g *Graph) TransitiveCallers(refs []FuncRef) []FuncRef {
+	return transitiveWalk(refs, func(ref FuncRef) []*ssa.Function {
+		if ref.Node == nil {
+			return nil
+		}
+		out := make([]*ssa.Function, 0, len(ref.Node.In))
+		for _, edge := range ref.Node.In {
+			out = append(out, edge.Caller.Func)
+		}
+		return out
+	})
+}
+
+// TransitiveCallees returns all functions transitively called by any of the
+// given functions (the full forward slice). The input refs are not included.
+func (g *Graph) TransitiveCallees(refs []FuncRef) []FuncRef {
+	return transitiveWalk(refs, func(ref FuncRef) []*ssa.Function {
+		if ref.Node == nil {
+			return nil
+		}
+		out := make([]*ssa.Function, 0, len(ref.Node.Out))
+		for _, edge := range ref.Node.Out {
+			out = append(out, edge.Callee.Func)
+		}
+		return out
+	})
+}
+
+func transitiveWalk(seeds []FuncRef, neighbors func(FuncRef) []*ssa.Function) []FuncRef {
+	visited := make(map[*ssa.Function]struct{}, len(seeds))
+	for _, ref := range seeds {
+		if ref.Fn != nil {
+			visited[ref.Fn] = struct{}{}
+		}
+	}
+
+	queue := make([]FuncRef, len(seeds))
+	copy(queue, seeds)
+
+	var results []FuncRef
+	for len(queue) > 0 {
+		cur := queue[0]
+		queue = queue[1:]
+		for _, fn := range neighbors(cur) {
+			if fn == nil || fn.Synthetic != "" {
+				continue
+			}
+			if _, seen := visited[fn]; seen {
+				continue
+			}
+			visited[fn] = struct{}{}
+			ref := FuncRef{Fn: fn, Node: cur.MG.CG.Nodes[fn], MG: cur.MG}
+			results = append(results, ref)
+			queue = append(queue, ref)
+		}
+	}
+	return results
+}
